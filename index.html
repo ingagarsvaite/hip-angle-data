@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Hip Abduction – Video Upload</title>
+  <style>
+    :root{ --primary:#4285f4; --green:#34a853; --amber:#f9ab00; --red:#ea4335;
+           --bg:#0a0a0a; --ink:#e5e7eb; --panel:#111827; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+    header{padding:12px 16px;background:var(--primary);color:#fff;position:sticky;top:0;z-index:5}
+    h1{margin:0;font-size:18px}
+    main{max-width:520px;margin:16px auto;padding:0 12px}
+    .card{background:#0f1115;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.25);padding:12px;margin-bottom:12px}
+    #video-wrap{position:relative;border:1px solid #1f2937;border-radius:12px;overflow:hidden;background:#000}
+    #video{width:100%;height:auto;display:block;} /* no mirror */
+    #overlay{position:absolute;inset:0}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    .btn{appearance:none;border:0;border-radius:10px;padding:10px 14px;background:var(--primary);color:#fff;font-weight:600;cursor:pointer}
+    .btn[disabled]{opacity:.5;cursor:not-allowed}
+    input[type="file"]{display:inline-block}
+    .status-dot{width:10px;height:10px;border-radius:999px;display:inline-block;margin-right:6px;vertical-align:middle}
+    .dot-active{background:var(--green);box-shadow:0 0 6px var(--green)}
+    .dot-idle{background:#374151}
+    .dot-rec{background:var(--red);box-shadow:0 0 6px var(--red);animation:pulse 1.4s infinite}
+    @keyframes pulse{0%{opacity:1}50%{opacity:.6}100%{opacity:1}}
+    .panel{background:var(--panel);color:#fff;border-radius:12px;padding:12px}
+    .kv{display:flex;justify-content:space-between;align-items:center;margin:6px 0}
+    .kv .val{font-size:24px;font-weight:800}
+    .kv .lbl{opacity:.8}
+    .warn{margin-top:6px;font-size:14px}
+    .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;white-space:pre-wrap;background:#0b0d12;padding:8px;border-radius:8px;max-height:120px;overflow:auto}
+    .progress{height:6px;background:#1f2937;border-radius:6px;overflow:hidden}
+    .progress>div{height:100%;background:var(--primary);width:0%}
+    .note{background:#fff3cd;border:1px solid #ffe08a;color:#7c5a00;padding:10px;border-radius:10px}
+  </style>
+</head>
+<body>
+  <header><h1>Hip Abduction – Video Upload</h1></header>
+  <main>
+    <div class="card">
+      <div class="note">
+        Įkelkite MP4/WebM vaizdo failą (naudokite telefoną arba kompiuterį). Failas apdorojamas vietoje (naršyklėje).
+      </div>
+    </div>
+
+    <div class="card" id="video-wrap">
+      <video id="video" playsinline muted controls></video>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <div class="card panel">
+      <div class="row" style="align-items:center;gap:12px;margin-bottom:8px">
+        <input id="videoUpload" type="file" accept="video/*" />
+        <button id="btnLoad" class="btn">Įkelti ir paleisti</button>
+        <button id="btnPause" class="btn">Pauzė</button>
+        <button id="btnSeekStart" class="btn">Į pradžią</button>
+      </div>
+
+      <div class="kv">
+        <div><span id="dot" class="status-dot dot-idle"></span><span id="label">Laukiu vaizdo…</span></div>
+        <div id="avgVal" class="val">–</div>
+      </div>
+      <div class="row" style="gap:12px">
+        <div class="kv" style="flex:1"><div class="lbl">Abd L</div><div id="abdL" class="val">–</div></div>
+        <div class="kv" style="flex:1"><div class="lbl">Abd R</div><div id="abdR" class="val">–</div></div>
+      </div>
+      <div id="warn" class="warn">Statusas: laukiu pozos…</div>
+      <div class="progress" style="margin-top:10px"><div id="bar"></div></div>
+      <div class="row" style="margin-top:10px">
+        <button id="start" class="btn" disabled>Pradėti duomenų rinkimą (2 s)</button>
+        <button id="dl" class="btn" disabled>Atsisiųsti JSON</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="mono" id="dbg">Taškų koordinatės atsiras čia…</div>
+    </div>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
