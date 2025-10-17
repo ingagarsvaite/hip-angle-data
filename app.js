@@ -76,11 +76,14 @@ const ang  = (a,b)=>{ const c=Math.max(-1,Math.min(1, dotp(unit(a),unit(b)))); r
    Midline + abduction
    =========================== */
 function bodyMidlineFromLandmarks(L){
-  const S_mid = { x:(L.leftShoulder.x + L.rightShoulder.x)/2, y:(L.leftShoulder.y + L.rightShoulder.y)/2 };
-  const H_mid = { x:(L.leftHip.x + L.rightHip.x)/2,           y:(L.leftHip.y + L.rightHip.y)/2 };
-  let midDown = unit(sub(H_mid, S_mid));
-  if (midDown.y < 0) midDown = { x:-midDown.x, y:-midDown.y };
-  return { S_mid, H_mid, midDown };
+const S_mid = { x:(L.leftShoulder.x + L.rightShoulder.x)/2, y:(L.leftShoulder.y + L.rightShoulder.y)/2 };
+const H_mid = { x:(L.leftHip.x + L.rightHip.x)/2,           y:(L.leftHip.y + L.rightHip.y)/2 };
+const bodyAxis = (S_mid.y <= H_mid.y)
+    ? unit(sub(H_mid, S_mid))   // shoulders above hips → vector down along body
+    : unit(sub(S_mid, H_mid));  // shoulders below hips → vector up along body
+// Now bodyAxis points from the upper body end to the lower body end.
+const abdL = ang(sub(L.leftKnee, L.leftHip), bodyAxis);
+const abdR = ang(sub(L.rightKnee, L.rightHip), bodyAxis);
 }
 function abductionPerHip2D(HIP, KNEE, midDown){
   return ang(sub(KNEE, HIP), midDown);
