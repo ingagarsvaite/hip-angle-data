@@ -82,8 +82,8 @@ const bodyAxis = (S_mid.y <= H_mid.y)
     ? unit(sub(H_mid, S_mid))   // shoulders above hips → vector down along body
     : unit(sub(S_mid, H_mid));  // shoulders below hips → vector up along body
 // Now bodyAxis points from the upper body end to the lower body end.
-const abdL = ang(sub(L.leftKnee, L.leftHip), bodyAxis);
-const abdR = ang(sub(L.rightKnee, L.rightHip), bodyAxis);
+const abdL = 180 - ang(sub(L.leftKnee, L.leftHip), bodyAxis);
+const abdR = 180 - ang(sub(L.rightKnee, L.rightHip), bodyAxis);
 }
 function abductionPerHip2D(HIP, KNEE, midDown){
   return ang(sub(KNEE, HIP), midDown);
