@@ -131,39 +131,41 @@ async function loop(){
   raf=requestAnimationFrame(loop);
 }
 
-/* ==== Video load ==== */
 let currentFileURL=null;
-btnLoad.addEventListener('click',async()=>{
-  const file=videoUpload.files[0];
-  if(!file){alert('Pasirinkite vaizdo failą.');return;}
+btnLoad.addEventListener('click', async ()=>{
+  const file = videoUpload.files[0];
+  if (!file) { alert('Pasirinkite vaizdo failą.'); return; }
 
-  if(currentFileURL) URL.revokeObjectURL(currentFileURL);
-  currentFileURL=URL.createObjectURL(file);
-  video.src=currentFileURL;
+  if (currentFileURL) URL.revokeObjectURL(currentFileURL);
+  currentFileURL = URL.createObjectURL(file);
+  video.src = currentFileURL;
   video.load();
   video.pause();
 
-  try{
-    await initPose();
-    video.onloadedmetadata=()=>{
-      canvas.width=video.videoWidth;
-      canvas.height=video.videoHeight;
-      video.currentTime=0;
-      video.play().then(()=>{
-        console.log('Video started');
-        lastVideoTime=-1;
-        raf=requestAnimationFrame(loop);
-      });
-    };
-  }catch(e){
-    console.error('Pose init error:',e);
-    alert('Modelis nesuveikė: '+e.message);
-  }
-});
+  label.textContent = 'Kraunama...';
+  dot.className = 'status-dot dot-idle';
 
-/* ==== Pause/Play ==== */
-btnPause.addEventListener('click',()=>{
-  if(!video.src) return;
-  if(video.paused){video.play();btnPause.textContent='Pauzė';}
-  else{video.pause();btnPause.textContent='Tęsti';}
+  try {
+    // 1️⃣  Palauk, kol modelis užsikraus prieš paleidžiant video
+    await initPose();
+
+    // 2️⃣  Tik kai video pilnai paruoštas – startuojame
+    video.onloadeddata = () => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      label.textContent = 'Modelis įkeltas, analizuojama...';
+      video.currentTime = 0;
+      video.play();
+
+      // 3️⃣  Palaukiam kelis frame'us, kad tikrai pradėtų groti
+      setTimeout(() => {
+        lastVideoTime = -1;
+        if (rafHandle) cancelAnimationFrame(rafHandle);
+        rafHandle = requestAnimationFrame(loop);
+      }, 300);
+    };
+  } catch (err) {
+    console.error('Pose init error:', err);
+    alert('Nepavyko įkelti modelio: ' + err.message);
+  }
 });
