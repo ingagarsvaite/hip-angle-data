@@ -75,19 +75,27 @@ const ang  = (a,b)=>{ const c=Math.max(-1,Math.min(1, dotp(unit(a),unit(b)))); r
 /* ===========================
    Midline + abduction
    =========================== */
-function bodyMidlineFromLandmarks(L){
-const S_mid = { x:(L.leftShoulder.x + L.rightShoulder.x)/2, y:(L.leftShoulder.y + L.rightShoulder.y)/2 };
-const H_mid = { x:(L.leftHip.x + L.rightHip.x)/2,           y:(L.leftHip.y + L.rightHip.y)/2 };
-const bodyAxis = (S_mid.y <= H_mid.y)
-    ? unit(sub(H_mid, S_mid))   // shoulders above hips → vector down along body
-    : unit(sub(S_mid, H_mid));  // shoulders below hips → vector up along body
-// Now bodyAxis points from the upper body end to the lower body end.
-const abdL = 180 - ang(sub(L.leftKnee, L.leftHip), bodyAxis);
-const abdR = 180 - ang(sub(L.rightKnee, L.rightHip), bodyAxis);
+function bodyMidlineFromLandmarks(L) {
+  // Vidutiniai pečių ir klubų taškai
+  const S_mid = { 
+    x: (L.leftShoulder.x + L.rightShoulder.x) / 2,
+    y: (L.leftShoulder.y + L.rightShoulder.y) / 2 
+  };
+  const H_mid = { 
+    x: (L.leftHip.x + L.rightHip.x) / 2,
+    y: (L.leftHip.y + L.rightHip.y) / 2 
+  };
+
+  // Kūno ašies vektorius (be vertikalumo prielaidų)
+  // — visada nuo pečių centro iki klubų centro
+  const bodyAxis = unit(sub(H_mid, S_mid));
+
+  // Pagalbinis vektorius – "vidurinė linija" nukreipta nuo pečių į klubus
+  const midDown = bodyAxis;
+
+  return { S_mid, H_mid, midDown };
 }
-function abductionPerHip2D(HIP, KNEE, midDown){
-  return ang(sub(KNEE, HIP), midDown);
-}
+
 
 /* ===========================
    Colors
