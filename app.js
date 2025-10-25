@@ -99,25 +99,28 @@ function ensureEuroFilters(){
 }
 
 /* ===========================
-   MediaPipe model setup
+   MediaPipe model setup (LOW THRESHOLD VERSION)
    =========================== */
 let pose=null;
-const MODEL_META={delegate:'GPU'};
 async function initPose(){
   if(pose)return;
   const vision=await FilesetResolver.forVisionTasks(
-    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm');
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm'
+  );
   pose=await PoseLandmarker.createFromOptions(vision,{
     baseOptions:{
-      modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
-      delegate:MODEL_META.delegate
+      delegate:'CPU', // CPU veikia geriau su įkeltais video
+      modelAssetPath:
+        'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task'
     },
     runningMode:'VIDEO',
     numPoses:1,
-    minPoseDetectionConfidence:0.5,
-    minPosePresenceConfidence:0.5,
-    minTrackingConfidence:0.5
+    minPoseDetectionConfidence:0.25,
+    minPosePresenceConfidence:0.25,
+    minTrackingConfidence:0.25,
+    outputSegmentationMasks:false
   });
+  console.log('Pose model initialized with LOW thresholds (CPU)');
 }
 
 /* ===========================
@@ -144,19 +147,15 @@ function drawOverlay(L,angles,midline){
   ctx.beginPath();ctx.moveTo(RK.x,RK.y);ctx.lineTo(RH.x,RH.y);ctx.stroke();
   ctx.fillStyle='#ff0000';
   for(const p of[LS,RS,LH,RH,LK,RK]){ctx.beginPath();ctx.arc(p.x,p.y,4,0,Math.PI*2);ctx.fill();}
-  ctx.font='14px system-ui,Segoe UI,Roboto';ctx.textBaseline='bottom';
-  ctx.fillStyle=colAbd(angles.abdL);ctx.fillText(`${angles.abdL.toFixed(1)}°`,LH.x+8,LH.y-8);
-  ctx.fillStyle=colAbd(angles.abdR);ctx.fillText(`${angles.abdR.toFixed(1)}°`,RH.x+8,RH.y-8);
 }
 
 /* ===========================
-   Data collection
+   Data collection (20ms)
    =========================== */
 let recording=false;
 let collectedData=[];
 let lastSampleTime=0;
 const SAMPLE_MS=20;
-
 function startRecording(){
   if(!patientCode&&!askPatientCode())return;
   collectedData=[];
@@ -177,7 +176,7 @@ function startRecording(){
 }
 
 /* ===========================
-   Main loop (with working frame sync)
+   Main loop
    =========================== */
 let lastVideoTime=-1;
 async function loop(){
@@ -279,4 +278,5 @@ btnPause.addEventListener('click',()=>{
 btnSeekStart.addEventListener('click',()=>{video.currentTime=0;});
 startBtn.addEventListener('click',startRecording);
 dlBtn.addEventListener('click',downloadJSON);
+
 
