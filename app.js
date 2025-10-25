@@ -205,9 +205,9 @@ async function initPose(){
     },
     runningMode:'VIDEO',
     numPoses:1,
-    minPoseDetectionConfidence:0.5,
-    minPosePresenceConfidence:0.5,
-    minTrackingConfidence:0.5,
+    minPoseDetectionConfidence:0.3,
+    minPosePresenceConfidence:0.3,
+    minTrackingConfidence:0.3,
     outputSegmentationMasks:false
   });
 }
@@ -215,7 +215,7 @@ async function initPose(){
 /* ===========================
    Utility & Drawing code (unchanged)
    =========================== */
-const visOK = (p)=> (p.visibility ?? 1) >= 0.6;
+const visOK = (p)=> (p.visibility ?? 1) >= 0.4;
 let latest = { ok:false, angles:null, midline:null, lms:null, ts:null };
 let startRecordTs = null;
 
