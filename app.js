@@ -2,234 +2,304 @@
 import { PoseLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/+esm';
 
 /* ===========================
-   UI ELEMENTS
+   UI elements
    =========================== */
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
+
 const videoUpload = document.getElementById('videoUpload');
 const btnLoad = document.getElementById('btnLoad');
 const btnPause = document.getElementById('btnPause');
 const btnSeekStart = document.getElementById('btnSeekStart');
+const dlBtn = document.getElementById('dl');
+const startBtn = document.getElementById('start');
+
+const dot = document.getElementById('dot');
 const label = document.getElementById('label');
+const avgVal = document.getElementById('avgVal');
+const abdLVal = document.getElementById('abdL');
+const abdRVal = document.getElementById('abdR');
 const warn = document.getElementById('warn');
 
 /* ===========================
-   BASIC VECTOR MATH
+   Patient code
    =========================== */
-const unit = (v) => {
-  const n = Math.hypot(v.x, v.y);
-  return n > 1e-6 ? { x: v.x / n, y: v.y / n } : { x: 0, y: 0 };
-};
-const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
-const dotp = (a, b) => a.x * b.x + a.y * b.y;
-const ang = (a, b) => {
-  const c = Math.max(-1, Math.min(1, dotp(unit(a), unit(b))));
-  return Math.acos(c) * 180 / Math.PI;
-};
+let patientCode = null;
+function askPatientCode(){
+  let ok = false;
+  while(!ok){
+    const val = prompt('Įveskite paciento/tyrimo kodą (1–10 simbolių):', '');
+    if (val === null) return false;
+    if (/^[A-Za-z0-9_-]{1,10}$/.test(val)) { patientCode = val; ok = true; }
+    else alert('Kodas turi būti 1–10 simbolių (raidės/skaičiai).');
+  }
+  return true;
+}
 
 /* ===========================
-   LANDMARK INDEXES
+   Math utilities
+   =========================== */
+const unit = (v)=>{ const n=Math.hypot(v.x,v.y); return n>1e-6?{x:v.x/n,y:v.y/n}:{x:0,y:0}; };
+const sub  = (a,b)=>({x:a.x-b.x, y:a.y-b.y});
+const dotp = (a,b)=>a.x*b.x + a.y*b.y;
+const ang  = (a,b)=>{ const c=Math.max(-1,Math.min(1,dotp(unit(a),unit(b)))); return Math.acos(c)*180/Math.PI; };
+
+/* ===========================
+   Landmarks and midline
    =========================== */
 const LM = {
   LEFT_SHOULDER: 11, RIGHT_SHOULDER: 12,
   LEFT_HIP: 23, RIGHT_HIP: 24,
   LEFT_KNEE: 25, RIGHT_KNEE: 26
 };
-
-/* ===========================
-   MIDLINE CALCULATION
-   =========================== */
-function bodyMidlineFromLandmarks(L) {
-  const S_mid = {
-    x: (L.leftShoulder.x + L.rightShoulder.x) / 2,
-    y: (L.leftShoulder.y + L.rightShoulder.y) / 2
-  };
-  const H_mid = {
-    x: (L.leftHip.x + L.rightHip.x) / 2,
-    y: (L.leftHip.y + L.rightHip.y) / 2
-  };
-  const midDown = unit(sub(H_mid, S_mid)); // from shoulders to hips
+function bodyMidlineFromLandmarks(L){
+  const S_mid = { x:(L.leftShoulder.x + L.rightShoulder.x)/2,
+                  y:(L.leftShoulder.y + L.rightShoulder.y)/2,
+                  z:(L.leftShoulder.z + L.rightShoulder.z)/2 };
+  const H_mid = { x:(L.leftHip.x + L.rightHip.x)/2,
+                  y:(L.leftHip.y + L.rightHip.y)/2,
+                  z:(L.leftHip.z + L.rightHip.z)/2 };
+  const midDown = unit(sub(S_mid, H_mid));
   return { S_mid, H_mid, midDown };
 }
 
 /* ===========================
-   ONE EURO FILTER
+   Abduction calculation
+   =========================== */
+function abductionPerHip2D(HIP, KNEE, midDown) {
+  let a = ang(sub(KNEE, HIP), midDown);
+  if (a > 180) a = 360 - a;
+  return a;
+}
+
+/* ===========================
+   Colors
+   =========================== */
+const SAFE = { greenMin:30, greenMax:45, yellowMax:60 };
+const colAbd = (a)=> a>=SAFE.greenMin && a<=SAFE.greenMax ? '#34a853'
+                    : a>SAFE.greenMax && a<=SAFE.yellowMax ? '#f9ab00'
+                    : '#ea4335';
+
+/* ===========================
+   One Euro filter
    =========================== */
 class OneEuro {
-  constructor({ minCutoff = 2.0, beta = 0.3, dCutoff = 1.0 } = {}) {
-    this.minCutoff = minCutoff;
-    this.beta = beta;
-    this.dCutoff = dCutoff;
-    this.xPrev = null;
-    this.dxPrev = null;
-    this.tPrev = null;
+  constructor({minCutoff=2.0,beta=0.3,dCutoff=1.0}={}) {
+    this.minCutoff=minCutoff; this.beta=beta; this.dCutoff=dCutoff;
+    this.xPrev=null; this.dxPrev=null; this.tPrev=null;
   }
-  static alpha(dt, cutoff) {
-    const tau = 1.0 / (2 * Math.PI * cutoff);
-    return 1.0 / (1.0 + tau / dt);
-  }
-  filterVec(t, x) {
-    if (this.tPrev == null) {
-      this.tPrev = t; this.xPrev = x; this.dxPrev = 0;
-      return x;
-    }
-    const dt = Math.max(1e-6, (t - this.tPrev) / 1000);
-    const dx = (x - this.xPrev) / dt;
-    const aD = OneEuro.alpha(dt, this.dCutoff);
-    const dxHat = aD * dx + (1 - aD) * this.dxPrev;
-    const cutoff = this.minCutoff + this.beta * Math.abs(dxHat);
-    const aX = OneEuro.alpha(dt, cutoff);
-    const xHat = aX * x + (1 - aX) * this.xPrev;
-    this.tPrev = t; this.xPrev = xHat; this.dxPrev = dxHat;
+  static alpha(dt,cutoff){ const tau=1.0/(2*Math.PI*cutoff); return 1.0/(1.0+tau/dt); }
+  filterVec(t,x){
+    if(this.tPrev==null){ this.tPrev=t; this.xPrev=x; this.dxPrev=0; return x; }
+    const dt=Math.max(1e-6,(t-this.tPrev)/1000);
+    const dx=(x-this.xPrev)/dt;
+    const aD=OneEuro.alpha(dt,this.dCutoff);
+    const dxHat=aD*dx+(1-aD)*this.dxPrev;
+    const cutoff=this.minCutoff+this.beta*Math.abs(dxHat);
+    const aX=OneEuro.alpha(dt,cutoff);
+    const xHat=aX*x+(1-aX)*this.xPrev;
+    this.tPrev=t; this.xPrev=xHat; this.dxPrev=dxHat;
     return xHat;
   }
 }
-
-let euro = null;
-function ensureEuroFilters() {
-  if (euro) return;
-  euro = Array.from({ length: 33 }, () => ({
-    x: new OneEuro({ minCutoff: 2.0, beta: 0.3, dCutoff: 1.0 }),
-    y: new OneEuro({ minCutoff: 2.0, beta: 0.3, dCutoff: 1.0 }),
-    z: new OneEuro({ minCutoff: 1.0, beta: 0.1, dCutoff: 1.0 })
+let euro=null;
+function ensureEuroFilters(){
+  if(euro) return;
+  euro=Array.from({length:33},()=>({
+    x:new OneEuro({minCutoff:2.0,beta:0.3,dCutoff:1.0}),
+    y:new OneEuro({minCutoff:2.0,beta:0.3,dCutoff:1.0}),
+    z:new OneEuro({minCutoff:1.0,beta:0.1,dCutoff:1.0})
   }));
 }
 
 /* ===========================
-   MEDIAPIPE INIT
+   Pose model init
    =========================== */
-let pose = null;
-async function initPose() {
-  if (pose) return;
-  const vision = await FilesetResolver.forVisionTasks(
+let pose=null;
+async function initPose(){
+  if(pose) return;
+  const vision=await FilesetResolver.forVisionTasks(
     'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm'
   );
-  pose = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath:
-        'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
-      delegate: 'AUTO'
+  pose=await PoseLandmarker.createFromOptions(vision,{
+    baseOptions:{
+      modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+      delegate:'CPU'
     },
-    runningMode: 'VIDEO',
-    numPoses: 1,
-    minPoseDetectionConfidence: 0.3,
-    minPosePresenceConfidence: 0.3,
-    minTrackingConfidence: 0.3
+    runningMode:'VIDEO',
+    numPoses:1,
+    minPoseDetectionConfidence:0.3,
+    minPosePresenceConfidence:0.3,
+    minTrackingConfidence:0.3
   });
 }
 
 /* ===========================
-   DRAWING FUNCTION
+   Drawing
    =========================== */
-function drawOverlay(L, midline) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!L) return;
+function drawOverlay(L, angles, midline){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!L) return;
 
-  const toPx = (p) => ({ x: p.x * canvas.width, y: p.y * canvas.height });
+  const toPx=(p)=>({x:p.x*canvas.width,y:p.y*canvas.height});
+  const LS=toPx(L.leftShoulder), RS=toPx(L.rightShoulder);
+  const LH=toPx(L.leftHip), RH=toPx(L.rightHip);
+  const LK=toPx(L.leftKnee), RK=toPx(L.rightKnee);
+  const Spt=toPx(midline.S_mid), Hpt=toPx(midline.H_mid);
 
-  const LS = toPx(L.leftShoulder), RS = toPx(L.rightShoulder);
-  const LH = toPx(L.leftHip), RH = toPx(L.rightHip);
-  const LK = toPx(L.leftKnee), RK = toPx(L.rightKnee);
-  const Spt = toPx(midline.S_mid), Hpt = toPx(midline.H_mid);
+  // green lines
+  ctx.strokeStyle='#00ff00'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(Spt.x,Spt.y); ctx.lineTo(Hpt.x,Hpt.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(LK.x,LK.y); ctx.lineTo(LH.x,LH.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(RK.x,RK.y); ctx.lineTo(RH.x,RH.y); ctx.stroke();
 
-  // midline (green)
-  ctx.strokeStyle = '#00ff00';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(Spt.x, Spt.y);
-  ctx.lineTo(Hpt.x, Hpt.y);
-  ctx.stroke();
-
-  // legs (green)
-  ctx.beginPath();
-  ctx.moveTo(LH.x, LH.y);
-  ctx.lineTo(LK.x, LK.y);
-  ctx.moveTo(RH.x, RH.y);
-  ctx.lineTo(RK.x, RK.y);
-  ctx.stroke();
-
-  // joints (red)
-  ctx.fillStyle = '#ff0000';
-  for (const p of [LS, RS, LH, RH, LK, RK]) {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-    ctx.fill();
+  // red joints
+  ctx.fillStyle='#ff0000';
+  for(const p of [LS,RS,LH,RH,LK,RK]){
+    ctx.beginPath(); ctx.arc(p.x,p.y,5,0,Math.PI*2); ctx.fill();
   }
+
+  // angle labels
+  ctx.font='14px system-ui,Segoe UI,Roboto';
+  ctx.textBaseline='bottom';
+  ctx.fillStyle=colAbd(angles.abdL);
+  ctx.fillText(`${angles.abdL.toFixed(1)}°`, LH.x+8, LH.y-8);
+  ctx.fillStyle=colAbd(angles.abdR);
+  ctx.fillText(`${angles.abdR.toFixed(1)}°`, RH.x+8, RH.y-8);
 }
 
 /* ===========================
-   MAIN VIDEO PROCESS LOOP
+   Data collection
    =========================== */
-async function processFrame(now, metadata) {
-  if (!pose) return;
-  const tNow = performance.now();
-  const out = await pose.detectForVideo(video, tNow);
-  if (out.landmarks && out.landmarks.length > 0) {
+let recording=false;
+let collectedData=[];
+let sampler=null;
+let lastSampleTime=0;
+const SAMPLE_MS=20;
+
+function startRecording(){
+  if (!patientCode && !askPatientCode()) return;
+  collectedData=[];
+  recording=true;
+  startBtn.disabled=true;
+  dlBtn.disabled=true;
+  warn.textContent=`⏺️ Renkami duomenys (2 s) – pacientas ${patientCode}`;
+
+  sampler=setTimeout(()=>{
+    recording=false;
+    startBtn.disabled=false;
+    dlBtn.disabled=false;
+    warn.textContent=`✅ Duomenys surinkti (${patientCode}). Galite atsisiųsti JSON.`;
+  },2000);
+}
+
+/* ===========================
+   Main loop
+   =========================== */
+async function loopVideo(){
+  if(!pose || video.paused || video.ended) return;
+  const tNow=performance.now();
+  const out=await pose.detectForVideo(video,tNow);
+  if(out.landmarks && out.landmarks.length>0){
     ensureEuroFilters();
-    const raw = out.landmarks[0];
-    const smooth = raw.map((p, i) => ({
-      x: euro[i].x.filterVec(tNow, p.x),
-      y: euro[i].y.filterVec(tNow, p.y),
-      z: euro[i].z.filterVec(tNow, p.z ?? 0),
-      visibility: p.visibility ?? 1
+    const raw=out.landmarks[0];
+    const smooth=raw.map((p,i)=>({
+      x:euro[i].x.filterVec(tNow,p.x),
+      y:euro[i].y.filterVec(tNow,p.y),
+      z:euro[i].z.filterVec(tNow,p.z??0),
+      visibility:p.visibility??1
     }));
-    const L = {
-      leftShoulder: smooth[LM.LEFT_SHOULDER],
-      rightShoulder: smooth[LM.RIGHT_SHOULDER],
-      leftHip: smooth[LM.LEFT_HIP],
-      rightHip: smooth[LM.RIGHT_HIP],
-      leftKnee: smooth[LM.LEFT_KNEE],
-      rightKnee: smooth[LM.RIGHT_KNEE]
+    const L={
+      leftShoulder:smooth[LM.LEFT_SHOULDER], rightShoulder:smooth[LM.RIGHT_SHOULDER],
+      leftHip:smooth[LM.LEFT_HIP], rightHip:smooth[LM.RIGHT_HIP],
+      leftKnee:smooth[LM.LEFT_KNEE], rightKnee:smooth[LM.RIGHT_KNEE]
     };
-    const midline = bodyMidlineFromLandmarks(L);
-    drawOverlay(L, midline);
-  } else {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const midline=bodyMidlineFromLandmarks(L);
+    const abdL=abductionPerHip2D(L.leftHip,L.leftKnee,midline.midDown);
+    const abdR=abductionPerHip2D(L.rightHip,L.rightKnee,midline.midDown);
+    drawOverlay(L,{abdL,abdR},midline);
+
+    const avg=(abdL+abdR)/2;
+    avgVal.textContent=`${avg.toFixed(1)}°`;
+    abdLVal.textContent=`${abdL.toFixed(1)}°`;
+    abdRVal.textContent=`${abdR.toFixed(1)}°`;
+    avgVal.style.color=colAbd(avg);
+    abdLVal.style.color=colAbd(abdL);
+    abdRVal.style.color=colAbd(abdR);
+    dot.className='status-dot dot-active';
+
+    // sample every 20 ms
+    if(recording && (tNow - lastSampleTime >= SAMPLE_MS)){
+      lastSampleTime=tNow;
+      collectedData.push({
+        patientCode,
+        timestamp:+tNow.toFixed(1),
+        avgAngle:+avg.toFixed(5),
+        leftAngle:+abdL.toFixed(5),
+        rightAngle:+abdR.toFixed(5),
+        midline:{
+          S_mid:{x:+midline.S_mid.x.toFixed(5),y:+midline.S_mid.y.toFixed(5),z:+midline.S_mid.z.toFixed(5)},
+          H_mid:{x:+midline.H_mid.x.toFixed(5),y:+midline.H_mid.y.toFixed(5),z:+midline.H_mid.z.toFixed(5)}
+        },
+        leftHip:{x:+L.leftHip.x.toFixed(5),y:+L.leftHip.y.toFixed(5),z:+L.leftHip.z.toFixed(5),v:+L.leftHip.visibility.toFixed(5)},
+        rightHip:{x:+L.rightHip.x.toFixed(5),y:+L.rightHip.y.toFixed(5),z:+L.rightHip.z.toFixed(5),v:+L.rightHip.visibility.toFixed(5)},
+        leftKnee:{x:+L.leftKnee.x.toFixed(5),y:+L.leftKnee.y.toFixed(5),z:+L.leftKnee.z.toFixed(5),v:+L.leftKnee.visibility.toFixed(5)},
+        rightKnee:{x:+L.rightKnee.x.toFixed(5),y:+L.rightKnee.y.toFixed(5),z:+L.rightKnee.z.toFixed(5),v:+L.rightKnee.visibility.toFixed(5)}
+      });
+    }
   }
-  video.requestVideoFrameCallback(processFrame);
+  requestAnimationFrame(loopVideo);
 }
 
 /* ===========================
-   VIDEO CONTROLS
+   Download JSON
    =========================== */
-let currentFileURL = null;
-btnLoad.addEventListener('click', async () => {
-  const file = videoUpload.files[0];
-  if (!file) {
-    alert('Pasirinkite vaizdo failą.');
-    return;
-  }
+function downloadJSON(){
+  if(collectedData.length===0){ alert('Nėra duomenų.'); return; }
+  const ts=new Date().toISOString().replace(/[:.]/g,'-');
+  const fileName=`pose_data_${patientCode||'anon'}_${ts}.json`;
+  const blob=new Blob([JSON.stringify(collectedData,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
-  if (currentFileURL) URL.revokeObjectURL(currentFileURL);
-  currentFileURL = URL.createObjectURL(file);
-  video.src = currentFileURL;
+/* ===========================
+   Video handling
+   =========================== */
+let currentFileURL=null;
+btnLoad.addEventListener('click', async ()=>{
+  const file=videoUpload.files[0];
+  if(!file){ alert('Pasirinkite vaizdo failą.'); return; }
+  if(currentFileURL) URL.revokeObjectURL(currentFileURL);
+  currentFileURL=URL.createObjectURL(file);
+  video.src=currentFileURL;
   video.load();
   video.pause();
-  label.textContent = 'Kraunama vaizdo įrašas...';
+
+  label.textContent='Kraunama vaizdo įrašas...';
+  dot.className='status-dot dot-idle';
 
   await initPose();
 
-  video.onloadeddata = () => {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    label.textContent = 'Analizuoju vaizdą...';
+  video.onloadeddata=()=>{
+    canvas.width=video.videoWidth;
+    canvas.height=video.videoHeight;
+    label.textContent='Analizuoju...';
     video.play();
-    console.log('Modelis įkeltas, analizuoju...');
-    video.requestVideoFrameCallback(processFrame);
+    requestAnimationFrame(loopVideo);
   };
 });
 
-btnPause.addEventListener('click', () => {
-  if (video.paused) {
-    video.play();
-    btnPause.textContent = 'Pauzė';
-  } else {
-    video.pause();
-    btnPause.textContent = 'Tęsti';
-  }
+btnPause.addEventListener('click',()=>{
+  if(video.paused){ video.play(); btnPause.textContent='Pauzė'; }
+  else{ video.pause(); btnPause.textContent='Tęsti'; }
 });
 
-btnSeekStart.addEventListener('click', () => {
-  video.currentTime = 0;
-});
+btnSeekStart.addEventListener('click',()=>{ video.currentTime=0; });
+startBtn.addEventListener('click', startRecording);
+dlBtn.addEventListener('click', downloadJSON);
